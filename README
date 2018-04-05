@@ -23,3 +23,24 @@ path_to_log_file - file path
 
 off - Disable module
 
+Sample Output:
+<--------------------Headers--------------------->
+05/Apr/2018:14:14:20 +0700
+
+POST / HTTP/1.1
+Host: icon.com.vn:80
+accept-language: de-DE,en-US;q=0.8
+Content-Length: 16
+Content-Type: application/x-www-form-urlencoded
+accept: image/*;q=0.2,image/png
+User-Agent: wrk
+dnt: 0
+cookie: GUID=abcdef123456890
+
+<------------------- Extra -------------------->
+IP: 127.0.0.1
+Status Code: 499
+Content Length: 0
+
+<------------------- Body -------------------->
+foo=bar&baz=quux
