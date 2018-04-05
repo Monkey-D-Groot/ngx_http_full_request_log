@@ -9,3 +9,17 @@ tested w/ nginx 0.7.67 on CentOS 64
 
 FOR TESTING:
 ./configure --prefix=/bitly/local --with-http_stub_status_module --with-pcre=/bitly/src/pcre-7.8 --with-openssl=/bitly/src/openssl-0.9.8j --with-http_ssl_module --add-module=/bitly/src/github/ngx_http_full_request_log --with-debug
+
+Directives
+==========
+
+full_request_log
+----------
+**syntax:** *full_request_log (path_to_log_file|off);*
+
+**context:** *http, server, location, if*
+
+path_to_log_file - file path
+
+off - Disable module
+
