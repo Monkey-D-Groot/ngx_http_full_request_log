@@ -105,16 +105,30 @@ static void ngx_http_full_request_log_body_handler(ngx_http_request_t *r)
     ngx_http_full_request_log_loc_conf_t    *lcf;
     ngx_http_full_request_log_t             *log;
     size_t                                  len;
-    ngx_buf_t                               *b, *buf, *next, *add;
+    ngx_buf_t                               *b, *buf, *next;
     ngx_uint_t                              i;
     ngx_list_part_t                         *part;
     ngx_table_elt_t                         *header;
     ngx_chain_t                             *cl;
-    
+    buf = NULL;
+	cl = NULL;
+	next = NULL;
     lcf = ngx_http_get_module_loc_conf(r, ngx_http_full_request_log_module);
     log = lcf->log;
-    
+	
     len = 50 + sizeof(CRLF) - 1 + ngx_cached_http_log_time.len + sizeof(CRLF) - 1 + sizeof(CRLF) - 1 + r->request_line.len + sizeof(CRLF) - 1 + sizeof(CRLF) - 1;
+	
+	/*check have request body*/
+    if (!(r->request_body == NULL || r->request_body->bufs == NULL || r->request_body->temp_file)) {
+		cl = r->request_body->bufs;
+		buf = cl->buf;
+		len += buf->last - buf->pos;
+	    if (cl->next != NULL) {
+			next = cl->next->buf;
+			len += next->last - next->pos;
+		}
+    }
+	
     part = &r->headers_in.headers.part;
     header = part->elts;
     for (i = 0; /* void */; i++) {
@@ -129,11 +143,30 @@ static void ngx_http_full_request_log_body_handler(ngx_http_request_t *r)
         }
         len += header[i].key.len + sizeof(": ") - 1 + header[i].value.len + sizeof(CRLF) - 1;
     }
-    b = ngx_create_temp_buf(r->pool, len);
-    if (b == NULL) {
+
+	size_t ll = 0;
+	u_char *p = NULL;
+	off_t    sent;
+    sent = r->connection->sent - r->header_size;
+    if (sent < 0) {
+        sent = 0;
+    }
+	u_char *status_code = ngx_pcalloc(r->pool,5);
+    if (status_code == NULL) {
+       return ;
+    }
+	ngx_snprintf(status_code, 5, "%ui", r->headers_out.status);
+    p = ngx_pcalloc(r->pool, NGX_OFF_T_LEN);
+    if (p == NULL) {
         return;
     }
-    
+     
+    ll = ngx_sprintf(p, "%O", sent) - p;
+	len += (50 + 4 + r->connection->addr_text.len + 15 + 3 + 18 + ll + 2 + 51  + 2);
+	b = ngx_create_temp_buf(r->pool, len);
+    if (b == NULL) {
+        return;
+    }	
     b->last = ngx_copy(b->last, "<--------------------Headers--------------------->", 50);
     *b->last++ = CR; *b->last++ = LF;
     
@@ -166,62 +199,28 @@ static void ngx_http_full_request_log_body_handler(ngx_http_request_t *r)
     }
     
     *b->last++ = CR; *b->last++ = LF;
-    ngx_http_full_request_log_write(r, log, b->pos, len);
-	
-	size_t ll = 0;
-	u_char *p = NULL;
-	off_t    sent;
-    sent = r->connection->sent - r->header_size;
-    if (sent < 0) {
-        sent = 0;
-    }
-    p = ngx_pnalloc(r->pool, NGX_OFF_T_LEN);
-    if (p == NULL) {
-        return;
-    }
-
-    ll = ngx_sprintf(p, "%O", sent) - p;
-	size_t l = (50 + 4 + r->connection->addr_text.len + 15 + 3 + 18 + ll + 2 + 51);
-	add = ngx_create_temp_buf(r->pool, l);
-	
-    if (add == NULL) {
-        return;
-    }
-	
-	add->last = ngx_copy(add->last, "<------------------- Extra -------------------->\r\n", 50);
-	add->last = ngx_copy(add->last, "IP: ", 4);
-	add->last = ngx_copy(add->last, r->connection->addr_text.data, r->connection->addr_text.len);
-	add->last = ngx_copy(add->last, "\r\nStatus Code: ", 15);
-	u_char *status_code = ngx_pcalloc(r->pool,5);
-    if (status_code == NULL) {
-       return ;
-    }
-	ngx_snprintf(status_code, 5, "%ui", r->headers_out.status);
-	add->last = ngx_copy(add->last, status_code, 3);
-	add->last = ngx_copy(add->last, "\r\nContent Length: ", 18);
-	add->last = ngx_copy(add->last, p, ll);
-	add->last = ngx_copy(add->last, "\r\n: ", 2);
-	add->last = ngx_copy(add->last, "\r\n<------------------- Body -------------------->\r\n", 51);
+	b->last = ngx_copy(b->last, "<------------------- Extra -------------------->\r\n", 50);
+	b->last = ngx_copy(b->last, "IP: ", 4);
+	b->last = ngx_copy(b->last, r->connection->addr_text.data, r->connection->addr_text.len);
+	b->last = ngx_copy(b->last, "\r\nStatus Code: ", 15);
+	b->last = ngx_copy(b->last, status_code, 3);
+	b->last = ngx_copy(b->last, "\r\nContent Length: ", 18);
+	b->last = ngx_copy(b->last, p, ll);
+	b->last = ngx_copy(b->last, "\r\n: ", 2);
+	b->last = ngx_copy(b->last, "\r\n<------------------- Body -------------------->\r\n", 51);
 	
     if (r->request_body == NULL || r->request_body->bufs == NULL || r->request_body->temp_file) {
-		ngx_http_full_request_log_write(r, log, add->pos, l - 51);	
+		ngx_http_full_request_log_write(r, log, b->pos, len - 51);	
         return;
     }
-	
-	ngx_http_full_request_log_write(r, log, add->pos, l);	
-    cl = r->request_body->bufs;
-    buf = cl->buf;
-    
-    len = buf->last - buf->pos;
-    ngx_http_full_request_log_write(r, log, buf->pos, len);
-    
+	b->last = ngx_copy(b->last, buf->pos, buf->last - buf->pos);
+ 
     if (cl->next != NULL) {
         next = cl->next->buf;
-        len = next->last - next->pos;
-        ngx_http_full_request_log_write(r, log, next->pos, len);
+		b->last = ngx_copy(b->last, next->pos, next->last - next->pos);
     }
-
-    ngx_http_full_request_log_write(r, log, (unsigned char *)"\r\n", 2);
+	b->last = ngx_copy(b->last, (unsigned char *)"\r\n", 2);
+    ngx_http_full_request_log_write(r, log, b->pos, len);
 }
 
 static void ngx_http_full_request_log_write(ngx_http_request_t *r, ngx_http_full_request_log_t *log, u_char *buf, size_t len)
